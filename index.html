@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>10-Second Video Preview</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--text:#16161a;--muted:#6b6b76;--line:#e3e1db;--accent:#e8590c;--box-sizing:border-box;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121214;--card:#1c1c20;--text:#f2f2f4;--muted:#9a9aa6;--line:#2c2c33;--accent:#ff7a33}}
+:root[data-theme="dark"]{--bg:#121214;--card:#1c1c20;--text:#f2f2f4;--muted:#9a9aa6;--line:#2c2c33;--accent:#ff7a33}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.4}
+main{max-width:560px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:1.5rem;margin:0 0 4px}
+p.sub{color:var(--muted);margin:0 0 20px;font-size:.95rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card label{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:16px}
+button{padding:11px 16px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;font-size:15px;cursor:pointer}
+.err{color:#d6336c;font-size:.85rem;margin-top:6px;min-height:1em}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+#modal.open{display:flex}
+.box{background:var(--card);border-radius:16px;width:100%;max-width:420px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column}
+.head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-weight:600}
+.head button{background:transparent;color:var(--text);padding:4px 10px;font-size:22px}
+.bar{height:4px;background:var(--line)}
+.bar i{display:block;height:100%;width:100%;background:var(--accent)}
+.stage{position:relative;background:#000;aspect-ratio:9/14;max-height:70vh}
+.stage.wide{aspect-ratio:16/9}
+.stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.over{position:absolute;inset:0;display:none;flex-direction:column;gap:10px;align-items:center;justify-content:center;background:rgba(0,0,0,.85);color:#fff;text-align:center;padding:20px}
+.over.show{display:flex}
+.foot{padding:10px 14px;font-size:.85rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>10-second previews</h1>
+  <p class="sub">Paste a video link, tap Preview, and a pop-up plays a 10-second snippet.</p>
+
+  <div class="card"><label><span class="dot" style="background:#ff0000"></span>YouTube</label>
+    <div class="row"><input id="in-yt" placeholder="https://youtube.com/watch?v=… (add &amp;t=30 to start at 30s)" inputmode="url"><button data-p="yt">Preview</button></div><div class="err" id="err-yt"></div></div>
+  <div class="card"><label><span class="dot" style="background:#25f4ee"></span>TikTok</label>
+    <div class="row"><input id="in-tt" placeholder="https://tiktok.com/@user/video/…" inputmode="url"><button data-p="tt">Preview</button></div><div class="err" id="err-tt"></div></div>
+  <div class="card"><label><span class="dot" style="background:#e1306c"></span>Instagram</label>
+    <div class="row"><input id="in-ig" placeholder="https://instagram.com/reel/…" inputmode="url"><button data-p="ig">Preview</button></div><div class="err" id="err-ig"></div></div>
+  <div class="card"><label><span class="dot" style="background:#1d9bf0"></span>Twitter / X</label>
+    <div class="row"><input id="in-tw" placeholder="https://x.com/user/status/…" inputmode="url"><button data-p="tw">Preview</button></div><div class="err" id="err-tw"></div></div>
+</main>
+
+<div id="modal" role="dialog" aria-modal="true">
+  <div class="box">
+    <div class="head"><span id="m-title"></span><button id="m-close" aria-label="Close">×</button></div>
+    <div class="bar"><i id="m-bar"></i></div>
+    <div class="stage" id="m-stage">
+      <div class="over" id="m-over"><div>10-second preview ended</div><button id="m-replay">Replay</button></div>
+    </div>
+    <div class="foot"><span id="m-count">10s</span><a id="m-open" target="_blank" rel="noopener" style="color:var(--accent)">Open full video</a></div>
+  </div>
+</div>
+
+<script>
+var LIMIT = 10, timer = null, current = null;
+
+var parsers = {
+  yt: function(u){
+    var m = u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/);
+    if(!m) return null;
+    var t = u.match(/[?&#]t=(\d+)/); var s = t ? parseInt(t[1],10) : 0;
+    return {title:'YouTube', wide:true, link:u,
+      src:'https://www.youtube-nocookie.com/embed/'+m[1]+'?autoplay=1&playsinline=1&rel=0&start='+s+'&end='+(s+LIMIT)};
+  },
+  tt: function(u){
+    var m = u.match(/tiktok\.com\/.*\/video\/(\d+)/);
+    if(!m) return null;
+    return {title:'TikTok', wide:false, link:u, src:'https://www.tiktok.com/embed/v2/'+m[1]};
+  },
+  ig: function(u){
+    var m = u.match(/instagram\.com\/(?:[\w.]+\/)?(p|reel|reels|tv)\/([\w-]+)/);
+    if(!m) return null;
+    var type = m[1]==='reels' ? 'reel' : m[1];
+    return {title:'Instagram', wide:false, link:u, src:'https://www.instagram.com/'+type+'/'+m[2]+'/embed/'};
+  },
+  tw: function(u){
+    var m = u.match(/(?:twitter|x)\.com\/\w+\/status\/(\d+)/);
+    if(!m) return null;
+    return {title:'Twitter / X', wide:false, link:u, src:'https://platform.twitter.com/embed/Tweet.html?id='+m[1]};
+  }
+};
+
+var $ = function(id){return document.getElementById(id)};
+var stage = $('m-stage'), over = $('m-over');
+
+function clearFrame(){ var f = stage.querySelector('iframe'); if(f) f.remove(); }
+
+function stop(){ clearInterval(timer); timer = null; }
+
+function play(p){
+  stop(); clearFrame(); over.classList.remove('show');
+  var f = document.createElement('iframe');
+  f.allow = 'autoplay; encrypted-media; picture-in-picture';
+  f.setAttribute('allowfullscreen','');
+  f.src = p.src;
+  stage.insertBefore(f, over);
+  var start = Date.now(); $('m-bar').style.width = '100%';
+  timer = setInterval(function(){
+    var left = Math.max(0, LIMIT - (Date.now()-start)/1000);
+    $('m-bar').style.width = (left/LIMIT*100)+'%';
+    $('m-count').textContent = Math.ceil(left)+'s';
+    if(left <= 0){ stop(); clearFrame(); over.classList.add('show'); $('m-count').textContent = '0s'; }
+  }, 100);
+}
+
+function openModal(p){
+  current = p;
+  $('m-title').textContent = p.title;
+  $('m-open').href = p.link;
+  stage.className = 'stage' + (p.wide ? ' wide' : '');
+  $('modal').classList.add('open');
+  play(p);
+}
+
+function closeModal(){ stop(); clearFrame(); $('modal').classList.remove('open'); }
+
+document.querySelectorAll('button[data-p]').forEach(function(b){
+  b.addEventListener('click', function(){
+    var k = b.dataset.p, url = $('in-'+k).value.trim(), err = $('err-'+k);
+    err.textContent = '';
+    if(!url){ err.textContent = 'Paste a link first.'; return; }
+    var p = parsers[k](url);
+    if(!p){ err.textContent = 'That doesn’t look like a valid ' + ({yt:'YouTube',tt:'TikTok',ig:'Instagram',tw:'Twitter / X'})[k] + ' video link (short share links aren’t supported; use the full URL).'; return; }
+    openModal(p);
+  });
+});
+$('m-close').addEventListener('click', closeModal);
+$('m-replay').addEventListener('click', function(){ if(current) play(current); });
+$('modal').addEventListener('click', function(e){ if(e.target.id==='modal') closeModal(); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
+</script>
+</body>
+</html>
