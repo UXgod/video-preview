@@ -33,6 +33,8 @@ button{padding:11px 16px;border:0;border-radius:10px;background:var(--accent);co
 .stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .over{position:absolute;inset:0;display:none;flex-direction:column;gap:10px;align-items:center;justify-content:center;background:rgba(0,0,0,.85);color:#fff;text-align:center;padding:20px}
 .over.show{display:flex}
+.hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:8px 14px;border-radius:20px;font-size:.85rem;pointer-events:none;display:none;white-space:nowrap}
+.hint.show{display:block}
 .foot{padding:10px 14px;font-size:.85rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
 </style>
 </head>
@@ -56,6 +58,7 @@ button{padding:11px 16px;border:0;border-radius:10px;background:var(--accent);co
     <div class="head"><span id="m-title"></span><button id="m-close" aria-label="Close">×</button></div>
     <div class="bar"><i id="m-bar"></i></div>
     <div class="stage" id="m-stage">
+      <div class="hint" id="m-hint">Tap the video to play. The 10s starts then</div>
       <div class="over" id="m-over"><div>10-second preview ended</div><button id="m-replay">Replay</button></div>
     </div>
     <div class="foot"><span id="m-count">10s</span><a id="m-open" target="_blank" rel="noopener" style="color:var(--accent)">Open full video</a></div>
@@ -70,7 +73,7 @@ var parsers = {
     var m = u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/);
     if(!m) return null;
     var t = u.match(/[?&#]t=(\d+)/); var s = t ? parseInt(t[1],10) : 0;
-    return {title:'YouTube', wide:true, link:u,
+    return {title:'YouTube', wide:true, auto:true, link:u,
       src:'https://www.youtube-nocookie.com/embed/'+m[1]+'?autoplay=1&playsinline=1&rel=0&start='+s+'&end='+(s+LIMIT)};
   },
   tt: function(u){
@@ -96,15 +99,11 @@ var stage = $('m-stage'), over = $('m-over');
 
 function clearFrame(){ var f = stage.querySelector('iframe'); if(f) f.remove(); }
 
-function stop(){ clearInterval(timer); timer = null; }
+var waiting = false;
+function stop(){ clearInterval(timer); timer = null; waiting = false; $('m-hint').classList.remove('show'); }
 
-function play(p){
-  stop(); clearFrame(); over.classList.remove('show');
-  var f = document.createElement('iframe');
-  f.allow = 'autoplay; encrypted-media; picture-in-picture';
-  f.setAttribute('allowfullscreen','');
-  f.src = p.src;
-  stage.insertBefore(f, over);
+function runTimer(){
+  clearInterval(timer);
   var start = Date.now(); $('m-bar').style.width = '100%';
   timer = setInterval(function(){
     var left = Math.max(0, LIMIT - (Date.now()-start)/1000);
@@ -113,6 +112,26 @@ function play(p){
     if(left <= 0){ stop(); clearFrame(); over.classList.add('show'); $('m-count').textContent = '0s'; }
   }, 100);
 }
+
+function play(p){
+  stop(); clearFrame(); over.classList.remove('show');
+  var f = document.createElement('iframe');
+  f.allow = 'autoplay; encrypted-media; picture-in-picture';
+  f.setAttribute('allowfullscreen','');
+  f.src = p.src;
+  stage.insertBefore(f, over);
+  $('m-bar').style.width = '100%';
+  if(p.auto){ runTimer(); }
+  else { waiting = true; $('m-count').textContent = 'Waiting for play…'; $('m-hint').classList.add('show'); }
+}
+
+// A tap inside a cross-site frame can't be read directly, but it moves focus into the frame.
+window.addEventListener('blur', function(){
+  setTimeout(function(){
+    var a = document.activeElement;
+    if(waiting && a && a.tagName === 'IFRAME'){ waiting = false; $('m-hint').classList.remove('show'); runTimer(); }
+  }, 0);
+});
 
 function openModal(p){
   current = p;
@@ -123,7 +142,7 @@ function openModal(p){
   play(p);
 }
 
-function closeModal(){ stop(); clearFrame(); $('modal').classList.remove('open'); }
+function closeModal(){ stop(); clearFrame(); over.classList.remove('show'); $('modal').classList.remove('open'); }
 
 document.querySelectorAll('button[data-p]').forEach(function(b){
   b.addEventListener('click', function(){
